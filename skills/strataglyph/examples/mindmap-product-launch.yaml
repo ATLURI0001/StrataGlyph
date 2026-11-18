@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=../references/diagram.schema.json
+title: Product launch
+subtitle: Everything the launch needs, by workstream, as a two-sided mind map
+kind: mindmap
+
+# An icon on the root and on each workstream marks the levels at a glance; the ideas stay words.
+nodes:
+  launch: { icon: generic:rocket, label: Product launch }
+  market: { icon: generic:target, label: Market }
+  personas: { label: Personas }
+  competitors: { label: Competitors }
+  pricing: { label: Pricing tiers }
+  product: { icon: generic:package, label: Product }
+  beta: { label: Beta feedback }
+  docs: { label: Docs and guides }
+  notes: { label: Release notes }
+  flags: { label: Feature flags }
+  sales: { icon: generic:sales, label: Sales }
+  demo: { label: Demo script }
+  partners: { label: Partner deals }
+  training: { label: Sales training }
+  comms: { icon: generic:marketing, label: Comms }
+  press: { label: Press kit }
+  blog: { label: Launch blog post }
+  video: { label: Launch video }
+  support: { icon: generic:support, label: Support }
+  faq: { label: FAQ }
+  oncall: { label: On-call rota }
+
+edges:
+  - launch -> market, product, sales, comms, support
+  - market -> personas, competitors, pricing
+  - product -> beta, docs, notes, flags
+  - sales -> demo, partners, training
+  - comms -> press, blog, video
+  - support -> faq, oncall

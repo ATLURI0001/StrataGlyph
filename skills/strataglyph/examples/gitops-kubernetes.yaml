@@ -1,0 +1,60 @@
+# yaml-language-server: $schema=../references/diagram.schema.json
+title: GitOps delivery with Argo CD
+subtitle: Actions pushes the image and bumps its tag; Argo CD syncs staging, then production manually
+direction: down
+# Top to bottom so the 880px README column shows it at full size (strataglyph review). One port per edge:
+# the sync, pull and scrape arrows end on cluster borders and must not share a point.
+layout: { layering: simplex, spacing: compact, merge: false }
+
+legend:
+  solid: Delivery and traffic
+  dashed: Creates pods via a ReplicaSet
+  dotted: Monitoring
+
+groups:
+  # Two columns per box: the pull request beside Actions, and each namespace as Ingress -> Service
+  # over Deployment -> Pods, so the figure stays near 3:4 instead of a strip.
+  app-repo: { type: box, label: App repository, icon: github:repo, cols: 2 }
+  staging: { type: k8s:cluster, label: Staging cluster }
+  staging-ns: { type: k8s:namespace, label: Namespace shop, in: staging, cols: 2 }
+  prod: { type: k8s:cluster, label: Production cluster }
+  prod-ns: { type: k8s:namespace, label: Namespace shop, in: prod, cols: 2 }
+
+nodes:
+  dev: { icon: generic:user, label: Developer }
+  pr: { icon: github:git-pull-request, label: Pull request, note: Review and checks, in: app-repo }
+  actions: { icon: logos:github-actions, label: GitHub Actions, note: "Build, test, push", in: app-repo }
+  registry: { icon: github:container, label: Container registry, note: "ghcr.io, pulled by both" }
+  config: { icon: github:repo, label: Config repository, note: Kustomize overlays }
+  # Argo CD beside the repository it watches and Prometheus beside Grafana: one row above the clusters.
+  argocd: { icon: logos:argo-icon, label: Argo CD, note: Watches config repo, align: config }
+  stg-ing: { icon: k8s:ing, label: Ingress, in: staging-ns }
+  stg-svc: { icon: k8s:svc, label: Service, in: staging-ns }
+  stg-deploy: { icon: k8s:deploy, label: Deployment, note: web, in: staging-ns }
+  stg-pods: { icon: k8s:pod, label: Pods, note: 2 replicas, in: staging-ns }
+  prod-ing: { icon: k8s:ing, label: Ingress, in: prod-ns }
+  prod-svc: { icon: k8s:svc, label: Service, in: prod-ns }
+  prod-deploy: { icon: k8s:deploy, label: Deployment, note: web, in: prod-ns }
+  prod-pods: { icon: k8s:pod, label: Pods, note: 6 replicas, in: prod-ns }
+  grafana: { icon: logos:grafana, label: Grafana, note: Dashboards }
+  prometheus: { icon: logos:prometheus, label: Prometheus, note: Metrics and alerts, align: grafana }
+
+edges:
+  - dev -> pr: { label: open PR }
+  - pr -> actions: { label: merge }
+  # The config repository's edge first, so its port sits nearer and the two lines out of Actions do not cross.
+  - actions -> config: { label: bump image tag }
+  - actions -> registry: { label: push image }
+  # The arrowhead stays on the repository: Argo CD pulls from it.
+  - { from: config, to: argocd, arrow: start, label: watch }
+  - argocd -> staging: { label: auto sync }
+  - argocd -> prod: { label: manual sync }
+  # Traffic is solid, the Deployment's pods are dashed (the Kubernetes deck draws "creates" links dashed), monitoring is dotted.
+  - stg-ing -> stg-svc -> stg-pods
+  - stg-deploy --> stg-pods
+  - prod-ing -> prod-svc -> prod-pods
+  - prod-deploy --> prod-pods
+  - grafana ..> prometheus: query
+  - prometheus ..> prod: scrape
+  # Both clusters pull from the registry; one arrow is drawn so the picture stays readable, and the arrowhead stays on the registry.
+  - { from: registry, to: staging, arrow: start, label: pull image }

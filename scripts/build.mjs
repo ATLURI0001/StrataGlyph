@@ -1,0 +1,111 @@
+#!/usr/bin/env node
+// Bundles src/ into the skill's zero-install CLI and vendors the two runtime engines next to it:
+//   skills/strataglyph/scripts/strataglyph.mjs        our code + yaml (MIT/ISC), one file
+//   skills/strataglyph/scripts/vendor/elk.bundled.cjs ELK layout (EPL-2.0), unmodified
+//   skills/strataglyph/scripts/vendor/resvg/          resvg wasm (MPL-2.0), unmodified
+//
+//   node scripts/build.mjs           build
+//   node scripts/build.mjs --check   fail if the committed bundle is stale (CI)
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const scriptsDir = join(root, "skills/strataglyph/scripts");
+const vendorDir = join(scriptsDir, "vendor");
+const outFile = join(scriptsDir, "strataglyph.mjs");
+const check = process.argv.includes("--check");
+const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+
+const result = await build({
+  entryPoints: [join(root, "src/main.ts")],
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  target: "node22",
+  write: false,
+  minify: false,
+  legalComments: "eof",
+  external: ["elkjs", "elkjs/*", "@resvg/resvg-wasm"],
+  define: { __VERSION__: JSON.stringify(pkg.version) },
+  banner: {
+    js: [
+      "#!/usr/bin/env node",
+      `// strataglyph ${pkg.version} (MIT). Generated from src/ by scripts/build.mjs; do not edit.`,
+      "// Bundles yaml (ISC, Eemeli Aro). ELK (EPL-2.0) and resvg (MPL-2.0) load from ./vendor.",
+      // CommonJS dependencies inside an ESM bundle need a real require for node builtins.
+      'import { createRequire as __sdwRequire } from "node:module";',
+      "const require = __sdwRequire(import.meta.url);",
+    ].join("\n"),
+  },
+});
+const code = result.outputFiles[0].text;
+
+const vendored = [
+  ["node_modules/elkjs/lib/elk.bundled.js", "elk.bundled.cjs"],
+  ["node_modules/elkjs/LICENSE.md", "elk.LICENSE.md"],
+  ["node_modules/@resvg/resvg-wasm/index.mjs", "resvg/index.mjs"],
+  ["node_modules/@resvg/resvg-wasm/index_bg.wasm", "resvg/index_bg.wasm"],
+];
+const version = (name) =>
+  JSON.parse(readFileSync(join(root, "node_modules", name, "package.json"), "utf8")).version;
+const elkVersion = version("elkjs");
+const resvgVersion = version("@resvg/resvg-wasm");
+
+// THIRD_PARTY_NOTICES.md names the vendored and bundled versions too.
+const noticesFile = join(root, "THIRD_PARTY_NOTICES.md");
+const notices = readFileSync(noticesFile, "utf8");
+const freshNotices = notices
+  .replace(/(\[elkjs\]\(https:\/\/github\.com\/kieler\/elkjs\) )[\d.]+\d/, `$1${elkVersion}`)
+  .replace(
+    /(\[@resvg\/resvg-wasm\]\(https:\/\/github\.com\/thx\/resvg-js\) )[\d.]+\d/,
+    `$1${resvgVersion}`,
+  )
+  .replace(/(\[yaml\]\(https:\/\/github\.com\/eemeli\/yaml\) )[\d.]+\d/, `$1${version("yaml")}`);
+
+if (check) {
+  const stale = [];
+  if (!existsSync(outFile) || readFileSync(outFile, "utf8") !== code) stale.push("strataglyph.mjs");
+  if (freshNotices !== notices) stale.push("THIRD_PARTY_NOTICES.md");
+  for (const [from, to] of vendored) {
+    const src = join(root, from);
+    const dst = join(vendorDir, to);
+    if (existsSync(src) && (!existsSync(dst) || !readFileSync(src).equals(readFileSync(dst))))
+      stale.push(`vendor/${to}`);
+  }
+  if (stale.length) {
+    console.error(`stale build output: ${stale.join(", ")}\nrun: pnpm build`);
+    process.exit(1);
+  }
+  console.log("build output is current");
+} else {
+  mkdirSync(join(vendorDir, "resvg"), { recursive: true });
+  writeFileSync(outFile, code);
+  for (const [from, to] of vendored) {
+    const src = join(root, from);
+    if (!existsSync(src)) {
+      // elkjs ships its license as LICENSE.md in some versions and not at all in others.
+      if (to.endsWith(".md")) continue;
+      throw new Error(`missing ${from}; run pnpm install`);
+    }
+    copyFileSync(src, join(vendorDir, to));
+  }
+  writeFileSync(
+    join(vendorDir, "README.md"),
+    [
+      "# Vendored runtime engines",
+      "",
+      "Copied unmodified from npm by `scripts/build.mjs` so the skill runs with no install step.",
+      "",
+      "| File | Package | License |",
+      "| --- | --- | --- |",
+      `| \`elk.bundled.cjs\` | [elkjs](https://github.com/kieler/elkjs) ${elkVersion} | EPL-2.0 (source: https://github.com/kieler/elkjs) |`,
+      `| \`resvg/index.mjs\`, \`resvg/index_bg.wasm\` | [@resvg/resvg-wasm](https://github.com/thx/resvg-js) ${resvgVersion} | MPL-2.0 (source: https://github.com/thx/resvg-js) |`,
+      "",
+    ].join("\n"),
+  );
+  if (freshNotices !== notices) writeFileSync(noticesFile, freshNotices);
+  rmSync(join(vendorDir, ".gitkeep"), { force: true });
+  console.log(`wrote ${outFile} (${(code.length / 1024).toFixed(0)} KB) and vendor/`);
+}

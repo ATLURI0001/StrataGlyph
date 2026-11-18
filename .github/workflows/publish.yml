@@ -1,0 +1,152 @@
+name: Publish
+
+# A published GitHub release ships the version everywhere that installs from a release:
+# - Gemini CLI installs an extension from the latest release's archive when there is one. The
+#   archive leaves out agents/, which is in Claude Code's format and which Gemini rejects with an
+#   error per file; the skill is all Gemini needs.
+# - npm gets the CLI as @atluri0001/strataglyph, staged from the skill folder by
+#   scripts/pack-npm.mjs. A version already on npm (the first one is published by hand, before
+#   trusted publishing can be configured) is skipped.
+# - The MCP Bundle out/strataglyph-<version>.mcpb (one-click install in Claude Desktop) is attached to
+#   the release, built by scripts/pack-mcpb.mjs.
+# - The MCP Registry gets out/server.json, server.json plus the bundle as a second package, after
+#   npm has the version (the registry checks the package's mcpName). A version already listed is
+#   skipped.
+#
+# Two jobs, so no dependency ever runs where it could mint an OIDC token and publish: build installs
+# the dependencies, runs every check and packs the four files with a read-only token; publish has
+# the OIDC and release-upload permissions, checks out nothing, installs nothing and only ships the
+# files build uploaded. No dependency cache in either job: a poisoned cache would reach a release.
+on:
+  release:
+    types: [published]
+
+# Nothing by default; each job asks for exactly what it needs.
+permissions: {}
+
+jobs:
+  build:
+    name: Check and pack the release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          package-manager-cache: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: node scripts/build.mjs --check
+      - run: node scripts/check-repo.mjs
+      - name: Check version matches release tag
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG" ]; then
+            echo "package.json version ($PKG_VERSION) != release tag ($TAG)" >&2
+            exit 1
+          fi
+
+      # Tracked files only, so nothing a test or a review left in skills/ ships.
+      - name: Pack the Gemini CLI extension archive
+        run: |
+          mkdir -p out
+          { printf '%s\0' gemini-extension.json README.md LICENSE THIRD_PARTY_NOTICES.md; git ls-files -z -- skills; } |
+            tar -czf out/strataglyph.tar.gz --null -T -
+
+      - run: node scripts/pack-npm.mjs
+      # ./ makes it a folder: npm reads a bare out/npm as the GitHub repository out/npm.
+      - name: Pack the npm tarball
+        run: npm pack ./out/npm --pack-destination out
+
+      - run: node scripts/pack-mcpb.mjs
+      - run: npx -y @anthropic-ai/mcpb@2.1.2 validate out/mcpb/manifest.json
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: |
+            out/strataglyph.tar.gz
+            out/atluri0001-strataglyph-*.tgz
+            out/strataglyph-*.mcpb
+            out/server.json
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish to npm, the release and the MCP Registry
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # attach the Gemini CLI archive and the MCP Bundle to the release
+      id-token: write # npm trusted publishing (OIDC) + provenance, MCP Registry login (OIDC)
+    steps:
+      # npm trusted publishing needs a newer npm than the runner image ships.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: release
+
+      - name: Attach the Gemini CLI extension archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$GITHUB_REF_NAME" release/strataglyph.tar.gz --clobber
+
+      # No token: authenticated via OIDC trusted publishing configured on npmjs.com
+      - name: Publish to npm
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if npm view "@atluri0001/strataglyph@$VERSION" version >/dev/null 2>&1; then
+            echo "@atluri0001/strataglyph@$VERSION is already on npm"
+          else
+            npm publish "./release/atluri0001-strataglyph-$VERSION.tgz" --access public
+          fi
+
+      - name: Attach the MCP Bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$GITHUB_REF_NAME" "release/strataglyph-${GITHUB_REF_NAME#v}.mcpb" --clobber
+
+      # No token: mcp-publisher logs in with this job's GitHub OIDC token, which grants the
+      # io.github.ATLURI0001/* namespace. The registry refuses to list a version twice.
+      # This job can also publish to npm, so the publisher is a pinned release checked against its
+      # sha256 (the line for it in that release's registry_<version>_checksums.txt); bump both
+      # together, on purpose, never back to releases/latest.
+      - name: Publish to the MCP Registry
+        env:
+          PUBLISHER: https://github.com/modelcontextprotocol/registry/releases/download/v1.8.5/mcp-publisher_linux_amd64.tar.gz
+          PUBLISHER_SHA256: 2d151ac57275c9a6684d9d22b1cba81058bab195ea0a162e8fce3c6a5ec32812
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          LISTED="https://registry.modelcontextprotocol.io/v0.1/servers/io.github.ATLURI0001%2Fstrataglyph/versions/$VERSION"
+          if curl -fs -o /dev/null "$LISTED"; then
+            echo "io.github.ATLURI0001/strataglyph $VERSION is already in the MCP Registry"
+          else
+            curl -fsSL -o mcp-publisher.tar.gz "$PUBLISHER"
+            echo "$PUBLISHER_SHA256  mcp-publisher.tar.gz" | sha256sum -c -
+            tar xzf mcp-publisher.tar.gz mcp-publisher
+            ./mcp-publisher login github-oidc
+            # The registry reads the version back from npm, which can take a minute to show a
+            # package published a moment ago; try again until it does.
+            for attempt in 1 2 3 4 5 6; do
+              ./mcp-publisher publish release/server.json && exit 0
+              echo "attempt $attempt failed; waiting for npm to list $VERSION"
+              sleep 30
+            done
+            exit 1
+          fi

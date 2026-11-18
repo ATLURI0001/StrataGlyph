@@ -1,0 +1,20 @@
+{
+  "name": "strataglyph",
+  "owner": {
+    "name": "Ram Prasad Atluri",
+    "url": "https://github.com/ATLURI0001"
+  },
+  "metadata": {
+    "description": "Professional architecture and system design diagrams with official cloud icons, rendered to SVG, PNG, draw.io, TSX and HTML."
+  },
+  "plugins": [
+    {
+      "name": "strataglyph",
+      "source": "./",
+      "description": "The strataglyph skill: official AWS, Azure, Google Cloud, Kubernetes, GitHub and IBM icons, ELK auto-layout you can steer, SVG/PNG/draw.io/TSX/HTML output and design documents, an MCP server, planner and author agents, a review board of four reviewer agents and 77 reference diagrams.",
+      "version": "0.13.0",
+      "license": "MIT",
+      "category": "design"
+    }
+  ]
+}

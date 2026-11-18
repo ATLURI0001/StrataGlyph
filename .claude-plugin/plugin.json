@@ -1,0 +1,16 @@
+{
+  "name": "strataglyph",
+  "displayName": "StrataGlyph",
+  "version": "0.13.0",
+  "description": "Architecture, system design and business flow diagrams with official AWS, Azure, Google Cloud, Kubernetes, GitHub and IBM icons plus 5,500 tech logos, auto-laid out and rendered to SVG, PNG, editable draw.io, React TSX, HTML and design documents. One skill with a zero-install CLI and an MCP server, agents that plan a diagram from your code and check it against it, a measured review with four reviewer agents and a /strataglyph:review loop, and 77 reference diagrams.",
+  "author": {
+    "name": "Ram Prasad Atluri",
+    "url": "https://github.com/ATLURI0001"
+  },
+  "homepage": "https://atluri0001.github.io/strataglyph/",
+  "repository": "https://github.com/ATLURI0001/strataglyph",
+  "license": "MIT",
+  "documentationUrl": "https://atluri0001.github.io/strataglyph/",
+  "supportUrl": "https://github.com/ATLURI0001/strataglyph/issues",
+  "keywords": ["diagram", "architecture", "system-design", "aws", "azure", "gcp", "kubernetes", "drawio", "svg", "png"]
+}

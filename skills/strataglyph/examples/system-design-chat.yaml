@@ -1,0 +1,45 @@
+# yaml-language-server: $schema=../references/diagram.schema.json
+title: Chat system design
+subtitle: WebSocket gateways keep clients connected; messages go through Kafka to Cassandra and to push providers for offline users
+direction: down
+# One port per edge: same-style edges that leave one node (the topic's two outputs, push to APNs and FCM) keep their own lines.
+layout: { merge: false }
+
+legend:
+  solid: Chat traffic
+  dashed: Media transfer
+
+# One tier per row, as system design write-ups draw it: the media path and the edge (load balancer,
+# gateways) under the clients, then the services, the stores and the push providers. `align` puts
+# each tier's nodes side by side, in the order listed here.
+nodes:
+  clients: { icon: generic:mobile, label: Clients, note: Mobile and web }
+  media: { icon: generic:bucket, label: Media storage, note: Presigned uploads, align: lb }
+  cdn: { icon: generic:cdn, label: CDN, note: Media downloads, align: lb }
+  lb: { icon: generic:load-balancer, label: Load balancer, note: "L4, Upgrade-aware" }
+  gateway: { icon: logos:websocket, label: WebSocket gateway, note: Open connections, badge: x4, align: lb }
+  chat: { icon: generic:servers, label: Chat service, note: "Ordering, fan-out, presigned URLs" }
+  presence: { icon: generic:server, label: Presence service, note: Heartbeats, align: chat }
+  # Shapes give the whiteboard look: cylinders for stores, a queue for the topic.
+  history: { shape: cylinder, icon: si:apachecassandra, label: Message store, note: Cassandra, align: topic }
+  topic: { shape: queue, icon: logos:kafka-icon, label: messages, note: Kafka topic }
+  status: { shape: cylinder, icon: logos:redis, label: Presence store, note: Redis with TTL keys, align: topic }
+  apns: { icon: tabler:device-mobile-message, label: APNs, note: Apple Push Notification service, align: push }
+  push: { icon: generic:notification, label: Push service, note: Offline users }
+  fcm: { icon: logos:firebase-icon, label: FCM, note: Firebase Cloud Messaging, align: push }
+
+edges:
+  # One arrowhead per hop, from the side that opens the connection; WebSocket says it is two-way.
+  - clients -> lb: WebSocket
+  - lb -> gateway -> chat
+  - gateway -> presence -> status
+  - chat -> status: who is online
+  - chat -> history: load history
+  - chat -> topic
+  - topic -> history: persist
+  - topic -> push: notify
+  - push -> apns, fcm
+  - clients --> media: upload
+  - media --> cdn
+  # Written in layout order with the arrow flipped, so the download does not loop back to the first row.
+  - { from: clients, to: cdn, arrow: start, line: dashed, label: download }

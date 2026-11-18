@@ -1,0 +1,57 @@
+---
+import { url } from "../lib/url";
+
+interface Props {
+  example: {
+    name: string;
+    title: string;
+    caption: string;
+    alt: string;
+    width: number;
+    height: number;
+    packs: string[];
+    categories: string[];
+    counts: { nodes: number; edges: number; groups: number };
+  };
+  eager?: boolean;
+}
+const { example: e, eager = false } = Astro.props;
+const src = (variant: string) => url(`gallery/${e.name}/${e.name}-${variant}.svg`);
+// Classic light first (eager when asked); the other three load when their switch shows them.
+const variants = [
+  { cls: "thumb-stage-dark", file: "dark", bg: "bg-[#0b1012]" },
+  { cls: "thumb-stage-light", file: "light", bg: "bg-[#eef2f6]" },
+  { cls: "thumb-classic-dark", file: "classic-dark", bg: "bg-[#0d1117]" },
+  { cls: "thumb-classic-light", file: "classic-light", bg: "bg-white" },
+];
+---
+
+<a
+  href={url(`examples/${e.name}/`)}
+  class="example-card lift panel group mb-4 flex break-inside-avoid flex-col overflow-hidden"
+  data-categories={e.categories.join(" ")}
+>
+  <div class="border-b border-line">
+    {
+      variants.map((v, i) => (
+        <img
+          class={`thumb ${v.cls} h-auto w-full p-3 ${v.bg}`}
+          src={src(v.file)}
+          alt={e.alt}
+          width={e.width}
+          height={e.height}
+          loading={eager && i === 0 ? "eager" : "lazy"}
+          decoding="async"
+        />
+      ))
+    }
+  </div>
+  <div class="flex flex-col gap-2.5 p-5">
+    <h3 class="font-semibold tracking-tight text-ink">{e.title}</h3>
+    <p class="line-clamp-3 text-sm text-dim">{e.caption}</p>
+    <div class="flex flex-wrap gap-1.5 pt-2">
+      {e.packs.filter((p) => p !== "generic").map((p) => <span class="chip">{p}</span>)}
+      <span class="chip tabular">{e.counts.nodes} nodes</span>
+    </div>
+  </div>
+</a>

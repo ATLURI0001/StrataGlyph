@@ -1,0 +1,241 @@
+// Icon sets that are published as npm libraries are not copied into the skill. They load at render
+// time from the library itself, at the version pinned in index.json: a matching node_modules copy
+// next to the tool when there is one, else the user cache, else jsDelivr (unpkg as a fallback).
+// Every file is checked against its pinned sha256 before it is used.
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { luminance } from "../color.ts";
+
+export interface LibrarySource {
+  npm: string;
+  version: string;
+  file: string;
+  sha256: string;
+  bytes: number;
+  /** File layout: an Iconify JSON set (default) or Primer's build/data.json. */
+  format?: "iconify" | "octicons";
+  /** Monochrome set, painted with the brand color or the theme ink. */
+  mono?: boolean;
+  /** Appended to a slug to get the library's own icon name (Octicons: "-24"). */
+  suffix?: string;
+  /** Weights the library names by suffix ("-bold"); only the plain names are indexed (Phosphor). */
+  variants?: string[];
+}
+
+interface IconifyIcon {
+  body: string;
+  width?: number;
+  height?: number;
+  left?: number;
+  top?: number;
+}
+
+export interface IconifySet {
+  prefix: string;
+  width?: number;
+  height?: number;
+  left?: number;
+  top?: number;
+  icons: Record<string, IconifyIcon>;
+  aliases?: Record<string, { parent: string }>;
+}
+
+export class LibraryError extends Error {
+  fixes: string[];
+  constructor(message: string, fixes: string[]) {
+    super(message);
+    this.fixes = fixes;
+  }
+}
+
+const loaded = new Map<string, IconifySet>();
+
+export function cacheDir(): string {
+  if (process.env.STRATAGLYPH_CACHE) return process.env.STRATAGLYPH_CACHE;
+  const base =
+    process.platform === "win32"
+      ? (process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"))
+      : (process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"));
+  return join(base, "strataglyph");
+}
+
+export const cachePath = (src: LibrarySource) =>
+  join(cacheDir(), `${src.npm.replace("/", "+")}@${src.version}`, src.file);
+
+export const libraryUrls = (src: LibrarySource) => [
+  `https://cdn.jsdelivr.net/npm/${src.npm}@${src.version}/${src.file}`,
+  `https://unpkg.com/${src.npm}@${src.version}/${src.file}`,
+];
+
+const sha256 = (buf: Uint8Array) => createHash("sha256").update(buf).digest("hex");
+
+/** The library file from a node_modules folder above the tool, when it is the pinned version. */
+function fromNodeModules(src: LibrarySource): Buffer | undefined {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 8; i++) {
+    const pkgDir = join(dir, "node_modules", src.npm);
+    const pkg = join(pkgDir, "package.json");
+    if (existsSync(pkg)) {
+      try {
+        if (JSON.parse(readFileSync(pkg, "utf8")).version === src.version) {
+          const buf = readFileSync(join(pkgDir, src.file));
+          if (sha256(buf) === src.sha256) return buf;
+        }
+      } catch {}
+    }
+    const up = dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  return undefined;
+}
+
+function fromCache(src: LibrarySource): Buffer | undefined {
+  const path = cachePath(src);
+  if (!existsSync(path)) return undefined;
+  // An unreadable entry (a folder, no permission) is a miss, so the library downloads again.
+  try {
+    const buf = readFileSync(path);
+    return sha256(buf) === src.sha256 ? buf : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function download(src: LibrarySource): Promise<Buffer> {
+  const problems: string[] = [];
+  for (const url of libraryUrls(src)) {
+    let buf: Buffer;
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+      if (!res.ok) {
+        problems.push(`${url}: HTTP ${res.status}`);
+        continue;
+      }
+      buf = Buffer.from(await res.arrayBuffer());
+    } catch (e) {
+      // fetch reports every network failure as "fetch failed"; the reason is in the cause.
+      const cause = (e as { cause?: { code?: string; message?: string } }).cause;
+      const why = cause?.code ?? cause?.message;
+      problems.push(`${url}: ${(e as Error).message}${why ? ` (${why})` : ""}`);
+      continue;
+    }
+    if (sha256(buf) !== src.sha256) {
+      problems.push(`${url}: checksum mismatch`);
+      continue;
+    }
+    // A verified download is used even when the cache cannot be written (read-only home).
+    const path = cachePath(src);
+    try {
+      mkdirSync(dirname(path), { recursive: true });
+      const tmp = `${path}.${process.pid}.tmp`;
+      writeFileSync(tmp, buf);
+      renameSync(tmp, path);
+    } catch (e) {
+      process.stderr.write(
+        `warn  icon library ${src.npm}@${src.version} was not cached (${(e as Error).message}); set STRATAGLYPH_CACHE to a writable folder\n`,
+      );
+    }
+    return buf;
+  }
+  throw new LibraryError(
+    `icon library ${src.npm}@${src.version} could not be downloaded (${problems.join("; ")})`,
+    [
+      "connect to the internet once; the library is cached after the first download",
+      "behind a proxy: set NODE_USE_ENV_PROXY=1 with HTTPS_PROXY so fetch uses it",
+      `prefetch where there is network: strataglyph icons fetch, then copy ${cacheDir()} (or set STRATAGLYPH_CACHE)`,
+      "use icons from the bundled official packs (aws, azure, gcp, k8s) instead",
+    ],
+  );
+}
+
+/** Where a library would load from right now, without downloading it. */
+export function librarySource(src: LibrarySource): "node_modules" | "cache" | undefined {
+  if (fromNodeModules(src)) return "node_modules";
+  if (fromCache(src)) return "cache";
+  return undefined;
+}
+
+/** Loads in flight, so overlapping renders (MCP, watch) fetch a pack once. */
+const pending = new Map<string, Promise<IconifySet>>();
+
+export function loadLibrary(pack: string, src: LibrarySource): Promise<IconifySet> {
+  const done = loaded.get(pack);
+  if (done) return Promise.resolve(done);
+  let load = pending.get(pack);
+  if (!load) {
+    load = readLibrary(pack, src).finally(() => pending.delete(pack));
+    pending.set(pack, load);
+  }
+  return load;
+}
+
+async function readLibrary(pack: string, src: LibrarySource): Promise<IconifySet> {
+  const buf = fromNodeModules(src) ?? fromCache(src) ?? (await download(src));
+  const json = JSON.parse(buf.toString("utf8"));
+  const set = src.format === "octicons" ? fromOcticons(json) : (json as IconifySet);
+  loaded.set(pack, set);
+  return set;
+}
+
+type OcticonsData = Record<string, { heights: Record<string, { width: number; path: string }> }>;
+
+/** Primer's data.json as an Iconify set, one icon per size ("repo-24"). */
+function fromOcticons(data: OcticonsData): IconifySet {
+  const icons: Record<string, IconifyIcon> = {};
+  for (const [name, icon] of Object.entries(data))
+    for (const [h, { width, path }] of Object.entries(icon.heights))
+      icons[`${name}-${h}`] = { body: path, width, height: Number(h) };
+  return { prefix: "octicon", icons };
+}
+
+export const loadedLibrary = (pack: string) => loaded.get(pack);
+
+/**
+ * One icon from an Iconify set, in the catalog's form: ids start with the token the renderer swaps
+ * for a per-instance prefix, and monochrome sets carry the color placeholder.
+ */
+export function libraryIcon(
+  set: IconifySet,
+  name: string,
+  mono = false,
+): { v: string; b: string } | undefined {
+  const icon = set.icons[name] ?? set.icons[set.aliases?.[name]?.parent ?? ""];
+  if (!icon) return undefined;
+  let body = icon.body;
+  for (const id of new Set([...body.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1] ?? ""))) {
+    const esc = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    body = body.replace(
+      new RegExp(`(\\bid="|url\\(#|href="#)${esc}(?=["')])`, "g"),
+      `$1sdwid_${id}`,
+    );
+  }
+  if (mono) {
+    body = body.replaceAll("currentColor", "{{c}}");
+    if (!/\bfill="/.test(body) || !body.includes("{{c}}")) body = `<g fill="{{c}}">${body}</g>`;
+  }
+  const v = [
+    icon.left ?? set.left ?? 0,
+    icon.top ?? set.top ?? 0,
+    icon.width ?? set.width ?? 16,
+    icon.height ?? set.height ?? 16,
+  ].join(" ");
+  return { v, b: body };
+}
+
+/**
+ * True when every painted color in an icon is near black, so a dark theme must recolor it. An icon
+ * with no paint at all counts: unpainted shapes fill black (logos:apple, logos:okta-icon).
+ */
+export function allDark(body: string): boolean {
+  if (/Gradient|<image|style="[^"]*(?:fill|stroke)\s*:/.test(body)) return false;
+  const colors = [...body.matchAll(/(?:fill|stroke|stop-color)="([^"]+)"/g)]
+    .map((m) => m[1] ?? "")
+    .filter((c) => c !== "none");
+  return colors.every(
+    (c) => c === "black" || (/^#[0-9a-fA-F]{3,6}$/.test(c) && luminance(c) < 0.06),
+  );
+}

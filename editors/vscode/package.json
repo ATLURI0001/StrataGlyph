@@ -1,0 +1,69 @@
+{
+  "name": "strataglyph-vscode",
+  "displayName": "strataglyph",
+  "description": "Errors with their fixes, quick fixes, icon id completion and hover for strataglyph diagram specs, from strataglyph lsp.",
+  "version": "0.1.0",
+  "publisher": "atluri0001",
+  "private": true,
+  "license": "MIT",
+  "author": "Ram Prasad Atluri (https://github.com/ATLURI0001)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ATLURI0001/strataglyph.git",
+    "directory": "editors/vscode"
+  },
+  "engines": {
+    "vscode": "^1.91.0"
+  },
+  "categories": [
+    "Linters",
+    "Programming Languages",
+    "Visualization"
+  ],
+  "keywords": [
+    "strataglyph",
+    "diagram",
+    "architecture",
+    "yaml",
+    "lsp"
+  ],
+  "activationEvents": [
+    "onLanguage:yaml"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "strataglyph",
+      "properties": {
+        "strataglyph.server.path": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "The strataglyph CLI to run as the language server: a `.mjs` or `.js` file run with `node` (such as `skills/strataglyph/scripts/strataglyph.mjs` in a checkout) or an `strataglyph` executable. A value with a folder in it or starting with `.` is read from the first workspace folder; a bare name such as `strataglyph` is looked up on PATH. Empty runs `npx -y @atluri0001/strataglyph lsp`. Set in user settings only, so a repository cannot choose what runs. Reload the window after changing it."
+        },
+        "strataglyph.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Log the messages between VS Code and strataglyph lsp in the strataglyph output channel."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[yaml]": {
+        "editor.quickSuggestions": {
+          "other": "on",
+          "comments": "off",
+          "strings": "on"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "11.0.0"
+  }
+}

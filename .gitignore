@@ -1,0 +1,18 @@
+node_modules/
+.scratch/
+out/
+coverage/
+*.log
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example
+.cache/
+# strataglyph review output (JSON report, display-width PNG, the scaled look PNG) and contact sheets
+*.review.json
+*.review.png
+*.review.look.png
+*.sheet.png
+# Local preview server config for the Claude desktop app
+.claude/launch.json

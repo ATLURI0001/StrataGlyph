@@ -1,0 +1,81 @@
+name: strataglyph diagrams
+description: Validate, render, review and diff strataglyph diagram specs, and keep one pull request comment with the results.
+author: Ram Prasad Atluri
+branding:
+  icon: layers
+  color: blue
+
+inputs:
+  specs:
+    description: >-
+      Spec files to check, one glob per line (git pathspec globs, so ** matches any depth).
+      Only YAML or JSON files with a top-level nodes key are checked.
+    required: false
+    default: |
+      **/*.strataglyph.yaml
+      docs/**/*.yaml
+  width:
+    description: Display width in CSS px for the review (a GitHub README column is 880).
+    required: false
+    default: "880"
+  comment:
+    description: Post one pull request comment with the results and update it on later runs (true or false).
+    required: false
+    default: "true"
+  fail-on:
+    description: >-
+      When the step fails. error, a spec has errors; warning, also when it has warnings;
+      review, also when its measured review does not pass.
+    required: false
+    default: error
+  version:
+    description: The @atluri0001/strataglyph version to run; empty runs the version this action ships with.
+    required: false
+    default: ""
+  token:
+    description: Token for the pull request comment; it needs pull-requests write permission.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  passed:
+    description: true when no spec fails under fail-on.
+    value: ${{ steps.report.outputs.passed }}
+  artifact-url:
+    description: Link to the artifact with the rendered SVG and PNG, review images and change pictures.
+    value: ${{ steps.upload.outputs.artifact-url }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: 26
+
+    - id: check
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/scripts/action/run.mjs" check
+      env:
+        STRATAGLYPH_SPECS: ${{ inputs.specs }}
+        STRATAGLYPH_WIDTH: ${{ inputs.width }}
+        STRATAGLYPH_VERSION: ${{ inputs.version }}
+        STRATAGLYPH_OUT: ${{ runner.temp }}/strataglyph
+
+    - id: upload
+      if: steps.check.outputs.count != '0'
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: strataglyph-diagrams
+        path: ${{ runner.temp }}/strataglyph
+        if-no-files-found: ignore
+
+    - id: report
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/scripts/action/run.mjs" report
+      env:
+        STRATAGLYPH_OUT: ${{ runner.temp }}/strataglyph
+        STRATAGLYPH_VERSION: ${{ inputs.version }}
+        STRATAGLYPH_COMMENT: ${{ inputs.comment }}
+        STRATAGLYPH_FAIL_ON: ${{ inputs.fail-on }}
+        STRATAGLYPH_ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        GH_TOKEN: ${{ inputs.token }}

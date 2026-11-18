@@ -1,0 +1,320 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/ATLURI0001/strataglyph/main/skills/strataglyph/references/diagram.schema.json",
+  "title": "strataglyph diagram spec",
+  "description": "An architecture, system design or business flow diagram: nodes with official icons, nested groups and labelled edges; also flowcharts, BPMN processes, state machines, trees, mind maps, customer journeys, data models, sequence diagrams and timelines (`kind`). Validate with `strataglyph validate`; render with `strataglyph render`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["nodes"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "type": ["string", "number"] },
+    "title": { "type": "string", "description": "Drawn top left; the SVG title and the TSX component name." },
+    "subtitle": { "type": "string" },
+    "kind": {
+      "enum": ["architecture", "flowchart", "process", "state", "tree", "mindmap", "journey", "er", "sequence", "timeline"],
+      "default": "architecture",
+      "description": "What the diagram is. architecture: vendor boxes and lines; flowchart: ISO 5807 symbols; process: BPMN 2.0 with pools and lanes; state: a UML state machine; tree: an org chart or hierarchy; mindmap: a two-sided mind map; journey: a customer journey grid of stages and lanes; er: a data model of entity tables (fields) and relationships (card); sequence: participants as lifelines and edges as messages in time order (fragments); timeline: dated items (date, or start and end) on an axis (timeline), groups as lanes. Sets the default direction and arrowhead."
+    },
+    "fragments": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/fragment" },
+      "description": "Combined fragments over ranges of messages (kind: sequence); messages are the edges, numbered from 1 in the order they are listed."
+    },
+    "timeline": { "$ref": "#/$defs/timeline" },
+    "icons": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "pattern": "\\.svg$" },
+      "propertyNames": { "pattern": "^[a-z0-9][a-z0-9-]*$" },
+      "description": "Your own SVG icons, name to file (relative to the spec), used as icon: local:<name>. `strataglyph icons new`, `icons check` and `icons adopt` make and verify them."
+    },
+    "stages": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Journey columns, in order (kind: journey); each node names its stage."
+    },
+    "story": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 2,
+      "description": "Node ids in the order the stage story visits them, each hop along an edge."
+    },
+    "direction": { "enum": ["right", "down", "left", "up"], "default": "right" },
+    "theme": { "enum": ["light", "dark"], "default": "dark" },
+    "look": { "enum": ["icon", "card"], "default": "icon", "description": "Default look for nodes with an icon." },
+    "arrowhead": { "enum": ["open", "filled"], "default": "open" },
+    "animate": {
+      "oneOf": [{ "type": "boolean" }, { "enum": ["packets", "flow", "relay", "none"] }],
+      "description": "Motion in SVG, TSX and HTML (PNG and draw.io stay still). packets: dots travel the edges, numbered steps in order; flow: marching dashes; relay: on one clock each line draws itself in turn and the node it reaches lights up; none: still. true is packets, false is none. Unset: packets for the classic skin, relay for stage (where relay and packets play the stage story)."
+    },
+    "skin": {
+      "enum": ["classic", "stage"],
+      "default": "stage",
+      "description": "stage (the default): the same layout as an animated scene in one tint (hairline grid, monochrome icons on ink tiles, mono caps labels), whose story runs the numbered edges in step order, else the longest path. classic: the vendors' own diagram styles."
+    },
+    "background": { "type": "string", "pattern": "^(#[0-9a-fA-F]{3}|#[0-9a-fA-F]{6}|transparent)$" },
+    "legend": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What each line style means; drawn as a key bottom right. Add an entry for every non-solid style the diagram uses.",
+      "properties": {
+        "solid": { "type": "string" },
+        "dashed": { "type": "string" },
+        "dotted": { "type": "string" },
+        "thick": { "type": "string" }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "spacing": {
+          "oneOf": [{ "enum": ["compact", "normal", "loose"] }, { "type": "number", "minimum": 0.5, "maximum": 3 }]
+        },
+        "routing": { "enum": ["orthogonal", "polyline", "spline"] },
+        "layering": { "enum": ["source", "simplex"] },
+        "merge": { "type": "boolean", "default": true, "description": "Join edges that share an endpoint into one trunk." },
+        "aspect": {
+          "oneOf": [{ "type": "number", "minimum": 0.25, "maximum": 4 }, { "type": "string", "pattern": "^\\s*\\d+(\\.\\d+)?\\s*[:/x]\\s*\\d+(\\.\\d+)?\\s*$" }],
+          "description": "Target width:height of the canvas, such as 4:3 or 16:9; layout wraps long flows and turns branches to land near it."
+        }
+      }
+    },
+    "tags": {
+      "type": "object",
+      "description": "A style per tag: color, line and legend label.",
+      "additionalProperties": { "type": "object", "additionalProperties": false, "properties": { "color": { "$ref": "#/$defs/hex" }, "line": { "enum": ["solid", "dashed", "dotted", "thick"] }, "label": { "type": "string" } } }
+    },
+    "views": {
+      "type": "object",
+      "description": "Named subsets drawn as their own figures (render --view).",
+      "additionalProperties": { "type": "object", "additionalProperties": false, "properties": { "title": { "type": "string" }, "subtitle": { "type": "string" }, "include": { "type": "array", "items": { "type": "string" } }, "exclude": { "type": "array", "items": { "type": "string" } }, "depth": { "type": "integer", "minimum": 0 } } }
+    },
+    "classes": { "type": "object", "description": "Shared presets of node, group or edge keys, applied with class:.", "additionalProperties": { "type": "object" } },
+    "include": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }], "description": "Spec files merged into this one, relative to it." },
+    "embed": { "type": "boolean", "default": true, "description": "Carry this spec inside rendered SVG and PNG files." },
+    "nodes": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": { "$ref": "#/$defs/nodeValue" } },
+        { "type": "array", "items": { "$ref": "#/$defs/nodeItem" } }
+      ]
+    },
+    "groups": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": { "$ref": "#/$defs/groupValue" } },
+        { "type": "array", "items": { "$ref": "#/$defs/groupItem" } }
+      ]
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "type": "string", "description": "\"a -> b\", \"a -> b: label\", \"a -> b, c\", \"a -[label]-> b -> c\"; arrows -> <- <-> -- --> ..> ==>" },
+          { "$ref": "#/$defs/edgeObject" },
+          {
+            "type": "object",
+            "description": "{ \"a -> b\": \"label\" } or { \"a -> b\": { label, step, color, line, arrow } }",
+            "minProperties": 1,
+            "maxProperties": 1,
+            "additionalProperties": {
+              "oneOf": [{ "type": "string" }, { "type": "number" }, { "type": "null" }, { "$ref": "#/$defs/edgeOptions" }]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "hex": { "type": "string", "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$" },
+    "tagList": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$" } }], "description": "Names for views and tag styles." },
+    "evidence": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }], "description": "Where it comes from: path:line, path:line#identifier or a resource address; checked by strataglyph verify." },
+    "classList": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }], "description": "Classes from the top-level classes mapping, applied before the item's own keys." },
+    "id": { "oneOf": [{ "type": "string", "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*$" }, { "type": "number", "minimum": 0, "description": "A YAML number names the item by its text: id: 1 is node \"1\"." }] },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "icon": { "type": "string", "description": "Icon id like aws:lambda; find ids with `strataglyph icons search <words>`." },
+        "label": { "type": "string" },
+        "note": { "type": "string", "description": "Smaller muted second line." },
+        "sublabel": { "type": "string" },
+        "description": { "type": "string" },
+        "in": { "type": "string", "description": "Parent group id." },
+        "parent": { "type": "string" },
+        "group": { "type": "string" },
+        "look": { "enum": ["icon", "card", "shape"] },
+        "style": { "enum": ["icon", "card", "shape"] },
+        "shape": {
+          "enum": ["box", "rounded", "pill", "circle", "diamond", "hexagon", "cylinder", "queue", "document", "note", "person", "cloud", "stack", "parallelogram", "subroutine", "trapezoid", "delay", "initial", "final", "terminator", "terminal", "decision", "process", "data", "io", "input", "output", "predefined", "manual", "database", "state"]
+        },
+        "bpmn": {
+          "enum": ["start", "start-message", "start-timer", "start-signal", "start-conditional", "intermediate", "intermediate-message", "intermediate-timer", "intermediate-signal", "end", "end-message", "end-error", "end-signal", "end-terminate", "end-escalation", "exclusive", "parallel", "inclusive", "event-based", "complex", "task", "user-task", "service-task", "manual-task", "script-task", "send-task", "receive-task", "business-rule-task", "subprocess", "call-activity", "data-object", "data-store"],
+          "description": "BPMN 2.0 element (kind: process): an event, gateway, task, subprocess or data element, drawn in BPMN notation."
+        },
+        "stage": { "type": "string", "description": "Journey column this step sits in (one of stages)." },
+        "score": { "type": "number", "minimum": -2, "maximum": 2, "description": "Journey emotion at this step, from -2 (very negative) to 2 (very positive)." },
+        "rank": { "oneOf": [{ "enum": ["first", "last"] }, { "type": "integer", "minimum": 1 }], "description": "Place along the flow: the first or last layer, or the nth layer." },
+        "layer": { "oneOf": [{ "enum": ["first", "last"] }, { "type": "integer", "minimum": 1 }] },
+        "align": { "type": "string", "description": "Share this node's layer: one row across the flow." },
+        "on": { "type": "string", "description": "A group whose border the node sits on (an internet gateway on its VPC)." },
+        "fields": { "type": "array", "items": { "$ref": "#/$defs/field" }, "description": "Entity columns (kind: er), drawn as a table with one row per field." },
+        "date": { "$ref": "#/$defs/date", "description": "A point in time (kind: timeline); not with start and end." },
+        "start": { "$ref": "#/$defs/date", "description": "Where a span starts (kind: timeline); needs end." },
+        "end": { "$ref": "#/$defs/date", "description": "Where a span ends (kind: timeline), its last day; needs start." },
+        "milestone": { "type": "boolean", "description": "Drawn as a diamond at its date (kind: timeline)." },
+        "status": { "enum": ["done", "active", "planned", "at-risk"], "description": "Item status (kind: timeline)." },
+        "tags": { "$ref": "#/$defs/tagList" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "class": { "$ref": "#/$defs/classList" },
+        "color": { "$ref": "#/$defs/hex" },
+        "badge": { "type": "string" },
+        "url": { "type": "string" },
+        "link": { "type": "string" },
+        "href": { "type": "string" },
+        "size": { "oneOf": [{ "enum": ["sm", "md", "lg", "xl"] }, { "type": "number", "minimum": 16, "maximum": 128 }] }
+      }
+    },
+    "nodeValue": { "oneOf": [{ "$ref": "#/$defs/node" }, { "type": "string" }, { "type": "null" }] },
+    "nodeItem": { "allOf": [{ "$ref": "#/$defs/node" }, { "required": ["id"] }] },
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "type": "string", "description": "Group style; `strataglyph styles` lists them (aws:vpc, gcp:project, azure:vnet, k8s:namespace, zone, box...)." },
+        "style": { "type": "string" },
+        "kind": { "type": "string" },
+        "label": { "type": "string" },
+        "in": { "type": "string" },
+        "parent": { "type": "string" },
+        "contains": { "type": "array", "items": { "type": "string" } },
+        "around": { "type": "array", "items": { "type": "string" }, "description": "Outline these ids after layout without moving them (overlay)." },
+        "cols": { "type": "integer", "minimum": 1, "maximum": 12, "description": "Lay the direct children out in this many columns, row by row in spec order." },
+        "tags": { "$ref": "#/$defs/tagList" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "class": { "$ref": "#/$defs/classList" },
+        "columns": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "children": { "type": "array", "items": { "type": "string" } },
+        "nodes": { "type": "array", "items": { "type": "string" } },
+        "color": { "$ref": "#/$defs/hex" },
+        "fill": { "oneOf": [{ "$ref": "#/$defs/hex" }, { "const": "none" }] },
+        "icon": { "oneOf": [{ "type": "string" }, { "const": false }, { "type": "null" }] },
+        "dashed": { "type": "boolean" }
+      }
+    },
+    "groupValue": { "oneOf": [{ "$ref": "#/$defs/group" }, { "type": "string" }] },
+    "groupItem": { "allOf": [{ "$ref": "#/$defs/group" }, { "required": ["id"] }] },
+    "edgeOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string" },
+        "text": { "type": "string" },
+        "line": { "enum": ["solid", "dashed", "dotted", "thick"] },
+        "style": { "enum": ["solid", "dashed", "dotted", "thick"] },
+        "arrow": { "enum": ["end", "start", "both", "none"] },
+        "color": { "$ref": "#/$defs/hex" },
+        "step": { "type": "integer", "minimum": 0, "maximum": 99 },
+        "flow": {
+          "enum": ["sequence", "message", "default", "conditional", "association"],
+          "description": "Process flow kind: message (between pools, dashed), default (a gateway's fallback branch), conditional, association (dotted, no arrowhead). Unset: sequence."
+        },
+        "constraint": { "type": "boolean", "description": "false: drawn after layout, ignored by it." },
+        "card": { "$ref": "#/$defs/card" },
+        "from_field": { "type": "string", "description": "The field row of the from entity the line attaches to (kind: er)." },
+        "to_field": { "type": "string", "description": "The field row of the to entity the line attaches to (kind: er)." },
+        "tags": { "$ref": "#/$defs/tagList" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "class": { "$ref": "#/$defs/classList" }
+      }
+    },
+    "edgeObject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] },
+        "to": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] },
+        "source": { "type": "string" },
+        "target": { "type": "string" },
+        "label": { "type": "string" },
+        "text": { "type": "string" },
+        "line": { "enum": ["solid", "dashed", "dotted", "thick"] },
+        "style": { "enum": ["solid", "dashed", "dotted", "thick"] },
+        "arrow": { "enum": ["end", "start", "both", "none"] },
+        "color": { "$ref": "#/$defs/hex" },
+        "step": { "type": "integer", "minimum": 0, "maximum": 99 },
+        "flow": {
+          "enum": ["sequence", "message", "default", "conditional", "association"],
+          "description": "Process flow kind: message (between pools, dashed), default (a gateway's fallback branch), conditional, association (dotted, no arrowhead). Unset: sequence."
+        },
+        "constraint": { "type": "boolean" },
+        "card": { "$ref": "#/$defs/card" },
+        "from_field": { "type": "string", "description": "The field row of the from entity the line attaches to (kind: er)." },
+        "to_field": { "type": "string", "description": "The field row of the to entity the line attaches to (kind: er)." },
+        "tags": { "$ref": "#/$defs/tagList" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "class": { "$ref": "#/$defs/classList" }
+      }
+    },
+    "field": {
+      "oneOf": [
+        { "type": "string", "pattern": "^\\s*\\S+(\\s+\\S+)*\\s*$", "description": "\"name type [pk] [fk] [unique] [null]\", the flags in any order after the type." },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": { "type": "string" },
+            "type": { "type": "string" },
+            "pk": { "type": "boolean" },
+            "fk": { "type": "boolean" },
+            "unique": { "type": "boolean" },
+            "nullable": { "type": "boolean" },
+            "note": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "card": {
+      "type": "string",
+      "pattern": "^\\s*(1|0\\.\\.1|1\\.\\.[nN*]|[nN]|0\\.\\.[nN*]|\\*)\\s*:\\s*(1|0\\.\\.1|1\\.\\.[nN*]|[nN]|0\\.\\.[nN*]|\\*)\\s*$",
+      "description": "Relationship cardinality (kind: er), from end : to end, each 1, 0..1, 1..n (or n) or 0..n (or *); quote a value that starts with *."
+    },
+    "date": {
+      "oneOf": [
+        { "type": "string", "pattern": "^\\s*\\d{4}(-(\\d{2}|[Qq][1-4])(-\\d{2})?)?\\s*$" },
+        { "type": "integer", "minimum": 1000, "maximum": 9999 }
+      ],
+      "description": "YYYY-MM-DD, YYYY-MM, YYYY-Qn or YYYY (a bare year may be a number)."
+    },
+    "fragment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "from", "to"],
+      "properties": {
+        "type": { "enum": ["loop", "alt", "opt", "par", "break", "critical"] },
+        "label": { "type": "string", "description": "The guard or condition, drawn beside the operator tag." },
+        "from": { "type": "integer", "minimum": 1, "description": "First message inside it (1-based)." },
+        "to": { "type": "integer", "minimum": 1, "description": "Last message inside it." },
+        "else": {
+          "type": "array",
+          "description": "alt and par only: where each further branch starts.",
+          "items": { "type": "object", "additionalProperties": false, "required": ["at"], "properties": { "at": { "type": "integer", "minimum": 1 }, "label": { "type": "string" } } }
+        }
+      }
+    },
+    "timeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The date axis (kind: timeline).",
+      "properties": {
+        "scale": { "enum": ["day", "week", "month", "quarter", "year"], "default": "month" },
+        "start": { "$ref": "#/$defs/date", "description": "Axis start; unset, the earliest item." },
+        "end": { "$ref": "#/$defs/date", "description": "Axis end; unset, the latest item." },
+        "today": { "$ref": "#/$defs/date", "description": "Draws a today marker at this date." }
+      }
+    }
+  }
+}

@@ -1,0 +1,76 @@
+// The CLI entry: parse the command line and hand it to the command it names.
+import { cmdDescribe } from "../describe.ts";
+import { cmdDiff } from "../diff.ts";
+import { cmdDoc } from "../doc/index.ts";
+import { cmdLsp } from "../lsp/index.ts";
+import { cmdMcp } from "../mcp/index.ts";
+import { cmdPatch } from "../patch/index.ts";
+import { cmdVerify } from "../verify.ts";
+import { cmdWatch } from "../watch.ts";
+import { parseArgs } from "./args.ts";
+import { cmdDemo, cmdDoctor } from "./doctor.ts";
+import { HELP, VERSION } from "./help.ts";
+import { cmdIcons } from "./icons.ts";
+import { FolderTargetError, usage } from "./io.ts";
+import { cmdRender } from "./render.ts";
+import { cmdReview } from "./review.ts";
+import { cmdImport, cmdInit, cmdStyles } from "./templates.ts";
+
+export async function main(argv = process.argv.slice(2)) {
+  try {
+    return await run(argv);
+  } catch (e) {
+    // An -o that names a folder where a file belongs is a bad command line, not a crash.
+    if (e instanceof FolderTargetError) usage(e.message);
+    throw e;
+  }
+}
+
+async function run(argv: string[]) {
+  const args = parseArgs(argv);
+  const [cmd, ...rest] = args._;
+  args._ = rest;
+  if (args.flags.version === true) return void process.stdout.write(`${VERSION}\n`);
+  if (!cmd || args.flags.help === true || cmd === "help")
+    return void process.stdout.write(`${HELP}\n`);
+  switch (cmd) {
+    case "render":
+      return cmdRender(args, false);
+    case "validate":
+    case "check":
+      return cmdRender(args, true);
+    case "review":
+      return cmdReview(args);
+    case "icons":
+    case "icon":
+      return cmdIcons(args);
+    case "styles":
+      return cmdStyles(args);
+    case "init":
+      return cmdInit(args);
+    case "import":
+      return cmdImport(args);
+    case "watch":
+      return cmdWatch(args);
+    case "patch":
+      return cmdPatch(args);
+    case "doc":
+      return cmdDoc(args);
+    case "mcp":
+      return cmdMcp(args);
+    case "diff":
+      return cmdDiff(args);
+    case "verify":
+      return cmdVerify(args);
+    case "describe":
+      return cmdDescribe(args);
+    case "lsp":
+      return cmdLsp(args);
+    case "doctor":
+      return cmdDoctor();
+    case "demo":
+      return cmdDemo(args);
+    default:
+      usage(`unknown command "${cmd}"`);
+  }
+}

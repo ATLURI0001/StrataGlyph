@@ -1,0 +1,80 @@
+# strataglyph for VS Code
+
+Shows strataglyph's diagnostics while you type a diagram spec, with the fix each one suggests, and
+completes what you are typing. It is a thin client for `strataglyph lsp`, the language server built
+into the [strataglyph](../../README.md) CLI; any editor that speaks the Language Server Protocol can
+use the same server (see below).
+
+A YAML file counts as a spec when it has the strataglyph schema modeline, or a top-level `nodes:`
+key with no `apiVersion` and a `kind` that is absent or one of strataglyph's own. Other YAML files
+(workflows, Kubernetes manifests, kind cluster configs) get nothing from it.
+
+## What it does
+
+- **Diagnostics as you type.** Every finding of `strataglyph validate`, on the characters it is
+  about: an unknown icon on its id, an unknown key on the key, a bad edge endpoint on that id
+  inside the edge line. Spec errors show at once; layout warnings (edges through nodes, empty
+  groups, lone nodes) follow when typing stops for 300 ms. The layout runs in a worker thread, so
+  completion and hover are not held up by it. Each message lists its fixes.
+- **Quick fixes.** The fixes that are one mechanical edit become code actions (Ctrl+. or the
+  light bulb): `use icon "aws:lambda"`, `rename "lable" to "label"`, `use "down"`,
+  `use direction: down`, `use layout: { spacing: loose }`. A value or key fix replaces just
+  that text, a setting fix writes one setting the way `strataglyph patch` does; comments and
+  formatting stay.
+- **Completion.** Icon ids after `icon:` (and in the short form `db: aws:rds`), ranked by the
+  same search as `strataglyph icons search`; group types after `type:`; group ids after `in:` and
+  `on:`, node ids after `align:`, node and group ids in edge lines; and the top-level keys.
+- **Hover** on an icon id: its official name, its pack and its category.
+- **Outline**: the groups and nodes of the spec.
+
+## Install
+
+The extension is not on the Marketplace. To try it from a checkout:
+
+```sh
+pnpm --dir editors/vscode install
+code --extensionDevelopmentPath="$PWD/editors/vscode"
+```
+
+To install it for good, package it and install the `.vsix`:
+
+```sh
+cd editors/vscode
+pnpm dlx @vscode/vsce package --skip-license
+code --install-extension strataglyph-vscode-0.1.0.vsix
+```
+
+## Settings
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `strataglyph.server.path` | empty | The CLI to run: a `.mjs` or `.js` file (run with `node`, such as `skills/strataglyph/scripts/strataglyph.mjs`) or an `strataglyph` executable. A value with a folder in it or starting with `.` is read from the first workspace folder; a bare name such as `strataglyph` is looked up on PATH. Empty runs `npx -y @atluri0001/strataglyph lsp`, which needs Node 22 or later. Machine scope: it is read from user (or remote machine) settings, never from a workspace's `.vscode/settings.json`. |
+| `strataglyph.trace.server` | `off` | `messages` or `verbose` logs the protocol in the strataglyph output channel. |
+
+The server starts in the extension's own storage folder, not in the workspace, and `npx` is started without a shell on Windows (npm's `npx-cli.js` on the `node` beside it). Reload the window after changing `strataglyph.server.path`. The extension also turns on quick
+suggestions inside YAML strings (`editor.quickSuggestions`), because VS Code reads plain YAML
+values as strings and would otherwise not offer completions there.
+
+## Other editors
+
+`strataglyph lsp` speaks LSP on stdin and stdout and takes no flags. Neovim 0.11:
+
+```lua
+vim.lsp.config("strataglyph", {
+  cmd = { "npx", "-y", "@atluri0001/strataglyph", "lsp" },
+  filetypes = { "yaml" },
+})
+vim.lsp.enable("strataglyph")
+```
+
+Helix (`languages.toml`):
+
+```toml
+[language-server.strataglyph]
+command = "npx"
+args = ["-y", "@atluri0001/strataglyph", "lsp"]
+
+[[language]]
+name = "yaml"
+language-servers = ["yaml-language-server", "strataglyph"]
+```

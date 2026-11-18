@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=../references/diagram.schema.json
+title: Order approval flowchart
+subtitle: An order that fails the credit check must be paid up front; one over the credit limit needs a manager's sign-off
+kind: flowchart
+layout: { spacing: compact }
+
+# The approved path runs straight down the middle; each decision's other exit leaves sideways
+# (align puts a step beside the one it names), so the sign-off sits left and prepayment right.
+nodes:
+  received: { shape: terminator, label: Order received }
+  details: { shape: input, label: Enter order details }
+  credit: { shape: predefined, label: Run credit check, note: Credit bureau API }
+  credit-ok: { shape: decision, label: Credit OK? }
+  call: { shape: manual, label: Ask for prepayment, note: Phone call, align: credit-ok }
+  sign-off: { shape: manual, label: Manager signs off, align: limit }
+  limit: { shape: decision, label: Over the limit? }
+  wait: { shape: delay, label: Wait for payment, note: Up to 48 hours, align: limit }
+  reserve: { shape: process, label: Reserve stock }
+  paid: { shape: decision, label: Paid in time?, align: reserve }
+  invoice: { shape: document, label: Print invoice }
+  rejected: { shape: terminator, label: Order rejected, align: invoice }
+  approved: { shape: terminator, label: Order approved }
+
+edges:
+  - received -> details -> credit -> credit-ok
+  - credit-ok -> limit: yes
+  - credit-ok -> call: no
+  - limit -> sign-off: yes
+  - limit -> reserve: no
+  - sign-off -> reserve
+  - call -> wait -> paid
+  - paid -> reserve: yes
+  - paid -> rejected: no
+  - reserve -> invoice -> approved

@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # icons.yml dispatches this on a Renovate branch after it pushes the regenerated files: a push
+  # made with GITHUB_TOKEN starts no pull_request run, but dispatched check runs land on the branch
+  # head, which is the PR head.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No version input: pnpm/action-setup reads packageManager (pnpm@12.16.1) from package.json
+      # and fails when both are set.
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint (Biome)
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Bundled CLI matches src/
+        run: node scripts/build.mjs --check
+
+      - name: Repo checks (dashes, paths, manifests, docs snippets, gallery)
+        run: node scripts/check-repo.mjs
+
+      # Pinned because no manifest lists it, so Renovate cannot bump it. Bump by hand.
+      - name: Lint skills (skillcheck)
+        run: npx -y @sagargupta1610/skillcheck@0.2.5 lint skills
+
+      - name: Doctor
+        run: node skills/strataglyph/scripts/strataglyph.mjs doctor
+
+      # No model calls: lints the eval cases, runs their graders on hand-made workspaces and
+      # re-measures the bad-spec baseline the review-loop eval grades against.
+      - name: Eval self-test
+        run: node evals/scripts/selftest.mjs
+
+  tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is load-bearing: paths in receipts and output names, CRLF-free checkouts
+        # (.gitattributes), and child processes in the CLI tests all differ there.
+        os: [ubuntu-latest, windows-latest]
+        node: [22, 24, 26]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm test

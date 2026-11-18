@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=../skills/strataglyph/references/diagram.schema.json
+title: GitOps delivery to three clouds
+subtitle: Actions builds and signs, Argo CD syncs three clusters, Cloudflare fronts them, Grafana watches
+direction: right
+layout: { merge: false, spacing: compact }
+# The stage story walks the release: a push builds, the tag bump lands, Argo CD picks it up.
+story: [dev, actions, manifests, argocd]
+
+legend:
+  solid: Delivery and traffic
+  dashed: Metrics
+
+groups:
+  github: { type: box, label: GitHub, icon: github:mark-github }
+  prod: { type: dashed, label: Production clusters }
+  gcloud: { type: gcp:cloud, in: prod }
+  azure: { type: azure:subscription, label: Azure subscription, in: prod }
+  aws: { type: aws:cloud, in: prod }
+
+nodes:
+  dev: { icon: generic:user, label: Developer }
+  users: { icon: generic:users, label: Users }
+  actions: { icon: logos:github-actions, label: GitHub Actions, note: "Build, test, sign", in: github }
+  ghcr: { icon: github:container, label: Container registry, note: ghcr.io, in: github }
+  manifests: { icon: github:repo, label: Manifests repository, in: github }
+  argocd: { icon: logos:argo-icon, label: Argo CD, note: GitOps controller }
+  cdn: { icon: logos:cloudflare-icon, label: Cloudflare, note: WAF and load balancing }
+  gke: { icon: gcp:gke, label: GKE, note: Google Kubernetes Engine, in: gcloud }
+  aks: { icon: azure:kubernetes-services, label: AKS, note: Azure Kubernetes Service, in: azure }
+  eks: { icon: aws:eks, label: EKS, note: Amazon Elastic Kubernetes Service, in: aws }
+  grafana: { icon: logos:grafana, label: Grafana, note: Dashboards }
+
+edges:
+  - dev -> actions: { label: push to main }
+  - actions -> ghcr: { label: image }
+  - actions -> manifests: { label: bump tag }
+  - argocd -> manifests: watch
+  # Edges to the boundary, not to each cluster: one flow each, no repeated labels.
+  - argocd -> prod: { label: sync }
+  - users -> cdn: HTTPS
+  - cdn -> prod: traffic
+  - grafana --> prod: query
