@@ -108,3 +108,134 @@ export function textBlock(
   const width = Math.max(0, ...lines.map((l) => measure(l, size, weight)));
   return { lines, size, weight, lead, width, height: lines.length ? lines.length * lead : 0 };
 }
+
+export interface OptimalWrapOptions {
+  orphanPenalty?: number;
+  shortLastLinePenalty?: number;
+}
+
+/**
+ * Optimal line breaking via dynamic programming (Knuth-Plass badness minimization).
+ * Produces balanced line lengths without ragged orphans or excessive whitespace rivers.
+ */
+export function optimalWrap(
+  text: string,
+  size: number,
+  maxWidth: number,
+  weight: 400 | 600 = 400,
+  options: OptimalWrapOptions = {},
+): string[] {
+  const orphanPenalty = options.orphanPenalty ?? 500;
+  const allLines: string[] = [];
+
+  for (const paragraph of text.split(/\r?\n/)) {
+    const rawWords = paragraph.split(/[^\S\u00a0\u2007\u202f]+/).filter(Boolean);
+    if (!rawWords.length) {
+      if (text.includes("\n")) allLines.push("");
+      continue;
+    }
+
+    // Decompose words that exceed maxWidth using CamelCase, hyphens, or character slicing
+    const tokens: string[] = [];
+    for (const word of rawWords) {
+      if (measure(word, size, weight) <= maxWidth) {
+        tokens.push(word);
+        continue;
+      }
+      const pieces = word.split(/(?<=[a-z0-9])(?=[A-Z])|(?<=-)/);
+      if (pieces.length > 1 && pieces.every((p) => measure(p, size, weight) <= maxWidth)) {
+        let acc = "";
+        for (const p of pieces) {
+          if (acc && measure(acc + p, size, weight) > maxWidth) {
+            tokens.push(acc);
+            acc = p;
+          } else acc += p;
+        }
+        if (acc) tokens.push(acc);
+        continue;
+      }
+      let chunk = "";
+      for (const ch of word) {
+        if (measure(chunk + ch, size, weight) > maxWidth && chunk) {
+          tokens.push(chunk);
+          chunk = ch;
+        } else chunk += ch;
+      }
+      if (chunk) tokens.push(chunk);
+    }
+
+    const n = tokens.length;
+    if (n === 0) continue;
+
+    // dp[i] = minimum badness cost from token i to n
+    // nextBreak[i] = optimal token index for next line break
+    const dp = new Array<number>(n + 1).fill(Infinity);
+    const nextBreak = new Array<number>(n + 1).fill(n);
+    dp[n] = 0;
+
+    for (let i = n - 1; i >= 0; i--) {
+      let curLine = "";
+      for (let j = i + 1; j <= n; j++) {
+        const token = tokens[j - 1] ?? "";
+        curLine = curLine ? `${curLine} ${token}` : token;
+        const w = measure(curLine, size, weight);
+        const dpNext = dp[j] ?? 0;
+        if (w > maxWidth) {
+          // If first token alone exceeds maxWidth, break immediately to avoid infinite cost
+          if (j === i + 1) {
+            dp[i] = 1_000_000 + dpNext;
+            nextBreak[i] = j;
+          }
+          break;
+        }
+
+        const slack = maxWidth - w;
+        let lineCost = 0;
+
+        if (j === n) {
+          // Last line in paragraph: slack is permitted, but penalize severe single-word orphans
+          lineCost = slack * 0.1;
+          if (i === n - 1 && n > 2) {
+            lineCost += orphanPenalty;
+          }
+        } else {
+          // Intermediate line: quadratic slack penalty
+          lineCost = slack * slack;
+        }
+
+        const totalCost = lineCost + dpNext;
+        const curBest = dp[i] ?? Infinity;
+        if (totalCost < curBest) {
+          dp[i] = totalCost;
+          nextBreak[i] = j;
+        }
+      }
+    }
+
+    // Reconstruct breaks from nextBreak
+    let idx = 0;
+    while (idx < n) {
+      const nxt = nextBreak[idx] ?? n;
+      const lineTokens = tokens.slice(idx, nxt);
+      allLines.push(lineTokens.join(" "));
+      idx = nxt;
+    }
+  }
+
+  return allLines;
+}
+
+export function optimalTextBlock(
+  text: string,
+  size: number,
+  maxWidth: number,
+  weight: 400 | 600 = 400,
+  lineHeight = 1.3,
+  options: OptimalWrapOptions = {},
+): TextBlock {
+  const lines = text ? optimalWrap(text, size, maxWidth, weight, options) : [];
+  const lead = Math.round(size * lineHeight * 10) / 10;
+  const width = Math.max(0, ...lines.map((l) => measure(l, size, weight)));
+  return { lines, size, weight, lead, width, height: lines.length ? lines.length * lead : 0 };
+}
+
