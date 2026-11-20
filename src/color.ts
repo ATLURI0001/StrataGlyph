@@ -230,3 +230,64 @@ export function ciede2000(hexA: string, hexB: string): number {
   );
   return dE;
 }
+
+/**
+ * Assesses WCAG 2.1 compliance level for foreground/background contrast.
+ * - 'AAA': >= 7.0:1 (normal) or >= 4.5:1 (large)
+ * - 'AA': >= 4.5:1 (normal)
+ * - 'AA Large': >= 3.0:1 (large text: >= 18pt or >= 14pt bold)
+ * - 'FAIL': Below accessible threshold
+ */
+export function wcagConformanceLevel(
+  fg: string,
+  bg: string,
+  fontSizePt = 12,
+  isBold = false,
+): "AAA" | "AA" | "AA Large" | "FAIL" {
+  const cr = contrast(fg, bg);
+  const isLargeText = fontSizePt >= 18 || (fontSizePt >= 14 && isBold);
+
+  if (isLargeText) {
+    if (cr >= 4.5) return "AAA";
+    if (cr >= 3.0) return "AA Large";
+    return "FAIL";
+  }
+
+  if (cr >= 7.0) return "AAA";
+  if (cr >= 4.5) return "AA";
+  return "FAIL";
+}
+
+/**
+ * Linearly interpolates between two hex colors in perceptually uniform Oklab color space.
+ * Prevents muddy gray/dark midtones typical of naive sRGB blending.
+ */
+export function interpolateOklab(hex1: string, hex2: string, t: number): string {
+  const rgb1 = parseHex(hex1);
+  const rgb2 = parseHex(hex2);
+  if (!rgb1 || !rgb2) return hex1;
+
+  const clampT = Math.max(0, Math.min(1, t));
+  const [L1, a1, b1] = sRGBToOklab(rgb1);
+  const [L2, a2, b2] = sRGBToOklab(rgb2);
+
+  const L = L1 + (L2 - L1) * clampT;
+  const a = a1 + (a2 - a1) * clampT;
+  const b = b1 + (b2 - b1) * clampT;
+
+  const rgbInterp = oklabToSRGB([L, a, b]);
+  return toHex(rgbInterp);
+}
+
+/**
+ * Generates an N-step perceptually uniform color ramp between two colors in Oklab space.
+ */
+export function generateOklabScale(hex1: string, hex2: string, steps: number): string[] {
+  if (steps <= 1) return [hex1];
+  const scale: string[] = [];
+  for (let i = 0; i < steps; i++) {
+    const t = i / (steps - 1);
+    scale.push(interpolateOklab(hex1, hex2, t));
+  }
+  return scale;
+}
