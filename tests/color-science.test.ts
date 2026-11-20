@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   ciede2000,
+  generateOklabScale,
+  interpolateOklab,
   linearToSRGB,
   oklabDistance,
   oklabToSRGB,
   sRGBToCIELAB,
   sRGBToLinear,
   sRGBToOklab,
+  wcagConformanceLevel,
 } from "../src/color.ts";
 
 describe("Color Science Utilities", () => {
@@ -89,5 +92,39 @@ describe("Color Science Utilities", () => {
     // Large difference for complementary colors
     const largeDelta = ciede2000("#000000", "#ffffff");
     expect(largeDelta).toBeGreaterThan(80.0);
+  });
+
+  it("evaluates WCAG 2.1 conformance levels correctly", () => {
+    // Black on White: 21:1 -> AAA
+    expect(wcagConformanceLevel("#000000", "#ffffff")).toBe("AAA");
+
+    // Gray on White (#767676 on #ffffff): ~4.54:1 -> AA for normal text
+    expect(wcagConformanceLevel("#767676", "#ffffff", 12)).toBe("AA");
+
+    // Light gray on White (#999999 on #ffffff): ~2.8:1 -> FAIL for normal
+    expect(wcagConformanceLevel("#999999", "#ffffff", 12)).toBe("FAIL");
+
+    // Large text (#999999 on #ffffff with >= 18pt or >= 14pt bold): ~2.8:1 still fails 3.0:1
+    expect(wcagConformanceLevel("#999999", "#ffffff", 18)).toBe("FAIL");
+
+    // 3.5:1 text with 18pt -> passes "AA Large"
+    expect(wcagConformanceLevel("#888888", "#ffffff", 18)).toBe("AA Large");
+  });
+
+  it("interpolates colors in perceptually uniform Oklab space without muddy midtones", () => {
+    // Interpolating blue (#0000ff) to yellow (#ffff00) at t=0.5 in Oklab avoids muddy gray
+    const midOklab = interpolateOklab("#0000ff", "#ffff00", 0.5);
+    expect(midOklab.startsWith("#")).toBe(true);
+    expect(midOklab.length).toBe(7);
+
+    // Identity endpoints
+    expect(interpolateOklab("#ff0000", "#00ff00", 0.0)).toBe("#ff0000");
+    expect(interpolateOklab("#ff0000", "#00ff00", 1.0)).toBe("#00ff00");
+
+    // Scale generation
+    const scale = generateOklabScale("#000000", "#ffffff", 5);
+    expect(scale.length).toBe(5);
+    expect(scale[0]).toBe("#000000");
+    expect(scale[4]).toBe("#ffffff");
   });
 });
